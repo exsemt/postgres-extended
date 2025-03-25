@@ -1,23 +1,26 @@
-FROM postgres:17.4
+FROM postgres:17 AS env-build
 
-# Install build dependencies & remove APT cache
-RUN apt-get update && apt-get install -y \
-  build-essential \
-  postgresql-server-dev-all \
-  git \
-  && rm -rf /var/lib/apt/lists/*
+# install build dependencies
+RUN apt-get update && apt-get -y upgrade \
+  && apt-get install -y build-essential libpq-dev postgresql-server-dev-all
 
-# Build, install, and clean up pg_uuidv7 in one step
-RUN git clone https://github.com/fboulnois/pg_uuidv7.git /pg_uuidv7 \
-  && cd /pg_uuidv7 \
-  && make \
-  && make install \
-  && rm -rf /pg_uuidv7
+WORKDIR /srv
+COPY . /srv
 
-# Add extension to PostgreSQL configuration
-RUN echo "shared_preload_libraries = 'pg_uuidv7'" >> /usr/share/postgresql/postgresql.conf.sample
+# build extension for postgres 17
+RUN pg_buildext build-17 17
 
-# Create init script to enable the extension
-RUN mkdir -p /docker-entrypoint-initdb.d && echo "CREATE EXTENSION IF NOT EXISTS pg_uuidv7;" > /docker-entrypoint-initdb.d/init-uuid.sql
+# create tarball and checksums
+RUN cp sql/pg_uuidv7--1.6.sql . && TARGETS=$(find * -name pg_uuidv7.so) \
+  && tar -czvf pg_uuidv7.tar.gz $TARGETS pg_uuidv7--1.6.sql pg_uuidv7.control \
+  && sha256sum pg_uuidv7.tar.gz $TARGETS pg_uuidv7--1.6.sql pg_uuidv7.control > SHA256SUMS
 
-CMD ["postgres"]
+FROM postgres:17 AS env-deploy
+
+# copy tarball and checksums
+COPY --from=0 /srv/pg_uuidv7.tar.gz /srv/SHA256SUMS /srv/
+
+# add extension to postgres
+COPY --from=0 /srv/${PG_MAJOR}/pg_uuidv7.so /usr/lib/postgresql/${PG_MAJOR}/lib
+COPY --from=0 /srv/pg_uuidv7.control /usr/share/postgresql/${PG_MAJOR}/extension
+COPY --from=0 /srv/pg_uuidv7--1.6.sql /usr/share/postgresql/${PG_MAJOR}/extension
