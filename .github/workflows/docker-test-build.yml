@@ -1,0 +1,33 @@
+name: Test Docker Build
+
+on:
+  pull_request:
+    branches: [master]
+  push:
+    branches: [master]
+    paths:
+      - "Dockerfile"
+      - ".github/workflows/docker-test-build.yml"
+
+jobs:
+  test-build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU (Multi-Arch Build)
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Test Multi-Platform Build
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm/v5,linux/arm/v7,linux/arm64/v8
+          push: false
+          tags: postgres-extended:test
+          load: false
