@@ -3,7 +3,7 @@ FROM postgres:17.4
 # Install build dependencies & remove APT cache
 RUN apt-get update && apt-get install -y \
   build-essential \
-  postgresql-server-dev-17 \
+  postgresql-server-dev-all \
   git \
   && rm -rf /var/lib/apt/lists/*
 
