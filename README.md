@@ -1,5 +1,5 @@
 # postgres-extended
-Postgres with extensions.
+Postgres with pg_uuidv7 extension.
 
 ## Dev
 
