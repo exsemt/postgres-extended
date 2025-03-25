@@ -1,26 +1,31 @@
-FROM postgres:17 AS env-build
+FROM postgres:17.4 AS env-build
 
-# install build dependencies
-RUN apt-get update && apt-get -y upgrade \
-  && apt-get install -y build-essential libpq-dev postgresql-server-dev-all
+# Install build dependencies
+RUN apt-get update && \
+  DEBIAN_FRONTEND=noninteractive apt-get install -y \
+  build-essential \
+  git \
+  postgresql-server-dev-17 \
+  && rm -rf /var/lib/apt/lists/*
 
-WORKDIR /srv
-COPY . /srv
+# Clone and build pg_uuidv7
+RUN git clone --depth 1 https://github.com/fboulnois/pg_uuidv7.git /build && \
+  cd /build && \
+  make && \
+  make install
 
-# build extension for postgres 17
-RUN pg_buildext build-17 17
+# Final image
+FROM postgres:17.4
 
-# create tarball and checksums
-RUN cp sql/pg_uuidv7--1.6.sql . && TARGETS=$(find * -name pg_uuidv7.so) \
-  && tar -czvf pg_uuidv7.tar.gz $TARGETS pg_uuidv7--1.6.sql pg_uuidv7.control \
-  && sha256sum pg_uuidv7.tar.gz $TARGETS pg_uuidv7--1.6.sql pg_uuidv7.control > SHA256SUMS
+# Copy extension files from builder
+COPY --from=env-build /usr/lib/postgresql/17/lib/pg_uuidv7.so /usr/lib/postgresql/17/lib/
+COPY --from=env-build /usr/share/postgresql/17/extension/pg_uuidv7.control /usr/share/postgresql/17/extension/
+COPY --from=env-build /usr/share/postgresql/17/extension/pg_uuidv7--*.sql /usr/share/postgresql/17/extension/
 
-FROM postgres:17 AS env-deploy
+# Enable extension
+RUN echo "shared_preload_libraries = 'pg_uuidv7'" >> /usr/share/postgresql/postgresql.conf.sample
 
-# copy tarball and checksums
-COPY --from=0 /srv/pg_uuidv7.tar.gz /srv/SHA256SUMS /srv/
+# Create init script
+RUN echo "CREATE EXTENSION IF NOT EXISTS pg_uuidv7;" > /docker-entrypoint-initdb.d/10-pg_uuidv7.sql
 
-# add extension to postgres
-COPY --from=0 /srv/${PG_MAJOR}/pg_uuidv7.so /usr/lib/postgresql/${PG_MAJOR}/lib
-COPY --from=0 /srv/pg_uuidv7.control /usr/share/postgresql/${PG_MAJOR}/extension
-COPY --from=0 /srv/pg_uuidv7--1.6.sql /usr/share/postgresql/${PG_MAJOR}/extension
+EXPOSE 5432
